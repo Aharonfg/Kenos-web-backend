@@ -6,3 +6,4 @@ matplotlib
 seaborn
 openpyxl
 Pillow
+python-multipart
