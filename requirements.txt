@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+pandas
+google-generativeai
+matplotlib
+seaborn
+openpyxl
+Pillow
