@@ -193,7 +193,7 @@ async def analizar_excel(file: UploadFile = File(...)):
                 emociones_filtradas.append(e)
         if emociones_filtradas:
             from collections import Counter
-            emocion_mas_comun = Counter(emociones_filtradas).most_coommon (1)[0][0]
+            emocion_mas_comun = Counter(emociones_filtradas).most_common (1)[0][0]
             with open("emocion_global.txt", "w", encoding="utf-8") as f:
                 f.write(emocion_mas_comun)
 
@@ -206,13 +206,20 @@ async def analizar_excel(file: UploadFile = File(...)):
         print("Error general en /analizar:")
         print(traceback.format_exc())
         return {"error": "Ha ocurrido un error al procesar el archivo."}
+from collections import Counter
+import pandas as pd
+
 @app.get("/emocion")
 def obtener_emocion_global():
     try:
         if not os.path.exists("emocion_global.txt"):
             return {"error": "archivo no encontrado"}
+
+        # Leer emoción más común (como antes)
         with open("emocion_global.txt", "r", encoding="utf-8") as f:
             emocion = f.read().strip().lower()
+
+        # Mapa para el emoji de la emoción dominante
         mapa_emoji = {
             "satisfacción": "😊",
             "frustración": "😠",
@@ -225,9 +232,58 @@ def obtener_emocion_global():
             "indiferencia": "😐",
             "agotamiento": "😩"
         }
-        return {"emoji": mapa_emoji.get(emocion, "No está dentro de los paràmetros"), "emocion": emocion}
-    
+
+        # Puntuación para calcular el % de satisfacción
+        puntuacion_emociones = {
+            "satisfacción": 1,
+            "compromiso": 1,
+            "aprecio": 1,
+            "esperanza": 0.8,
+            "indiferencia": 0,
+            "inseguridad": -0.3,
+            "estrés": -1,
+            "desmotivación": -0.8,
+            "agotamiento": -1,
+            "frustración": -0.5
+        }
+
+        # Leer emociones desde el Excel generado
+        df = pd.read_excel("emociones_resultado.xlsx")
+        emociones = df.values.flatten()
+        emociones_filtradas = [e for e in emociones if e in puntuacion_emociones]
+
+        if emociones_filtradas:
+            valores = [puntuacion_emociones[e] for e in emociones_filtradas]
+            media = sum(valores) / len(valores)
+            porcentaje_satisfaccion = round(((media + 1) / 2) * 100, 2)  # de [-1,1] a [0,100]
+        else:
+            porcentaje_satisfaccion = 0
+
+        # Emoji de estado general según el % de satisfacción
+        if porcentaje_satisfaccion <= 20:
+            emoji_estado = "😠"
+        elif porcentaje_satisfaccion <= 40:
+            emoji_estado = "😕"
+        elif porcentaje_satisfaccion <= 60:
+            emoji_estado = "😐"
+        elif porcentaje_satisfaccion <= 80:
+            emoji_estado = "🙂"
+        else:
+            emoji_estado = "😄"
+
+        return {
+            "emoji": mapa_emoji.get(emocion, "❓"),
+            "emocion": emocion,
+            "porcentaje_satisfaccion": porcentaje_satisfaccion,
+            "estado_general": emoji_estado
+        }
+
     except Exception:
         print("Error al obtener la emoción global:")
         print(traceback.format_exc())
-        return {"emoji": "Inexistente", "emocion": "Error"}
+        return {
+            "emoji": "❌",
+            "emocion": "Error",
+            "porcentaje_satisfaccion": "No disponible",
+            "estado_general": "❌"
+        }
