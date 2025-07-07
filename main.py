@@ -16,7 +16,7 @@ import tempfile
 import os
 
 # Configura la clave de la API de Gemini 
-genai.configure(api_key=GEMINI_API_KEY)
+genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 modelo = genai.GenerativeModel("gemini-1.5-pro")
 
 # Crear la app FastAPI
