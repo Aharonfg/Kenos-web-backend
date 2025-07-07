@@ -121,6 +121,7 @@ async def analizar_excel(file: UploadFile = File(...)):
                     print(traceback.format_exc())
                     time.sleep(3 + intento * 2)
             return ["Error"] * len(frases)
+            
 
         bloque = []
         respuestas_api = []
@@ -211,7 +212,6 @@ async def analizar_excel(file: UploadFile = File(...)):
 @app.get("/emocion")
 def obtener_emocion_global():
     try:
-        emocion_txt_path = os.path.join(RESULTADOS_DIR, "emocion_global.txt")
         excel_path = os.path.join(RESULTADOS_DIR, "emociones_resultado.xlsx")
 
         if not os.path.exists(emocion_txt_path) or not os.path.exists(excel_path):
@@ -250,7 +250,6 @@ def obtener_emocion_global():
 
         df = pd.read_excel(excel_path)
         emociones = df.values.flatten()
-        emociones_filtradas = [e for e in emociones if e in puntuacion_emociones]
 
         if emociones_filtradas:
             valores = [puntuacion_emociones[e] for e in emociones_filtradas]
