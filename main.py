@@ -36,25 +36,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Columnas originales que vamos a analizar
-columnas_objetivo = [
-    "Autoevaluación del rendimiento - ¿Qué consideras que necesitarías para avanzar en tu desarrollo profesional?",
-    "Valoración de recursos KENOS - Indica las observaciones que consideres sobre el seguimiento de tu persona referente",
-    "Valoración de recursos KENOS - Observaciones:",
-    "Autoevaluación - ¿Cómo crees que te valoran los/las compañeras de equipo?",
-    "Autoevaluación - ¿Cómo crees que te valoran las personas que coordinan tu equipo?",
-    "Valoración General - Observaciones y sugerencias"
-]
-
-# Nombres simplificados para el Excel final
-columnas_finales = [
-    "Autoevaluación del rendimiento",
-    "Seguimiento de persona referente",
-    "Valoración de recursos KENOS",
-    "Valoración por compañeras",
-    "Valoración por coordinadores",
-    "Observaciones y sugerencias"
-]
 
 # Función que llama a Gemini para obtener la emoción de una frase
 def obtener_emocion(texto, reintentos=3):
@@ -86,8 +67,9 @@ async def analizar_excel(file: UploadFile = File(...)):
 
         contenido = await file.read()
         encuesta = pd.read_excel(io.BytesIO(contenido), index_col=0)
-
-        respuestas_encuesta = encuesta[columnas_objetivo].values.tolist()
+        
+        columnas_validas = [col for col in encuesta.columns if not str(col).startswith('Unnamed')]
+        respuestas_encuesta = encuesta[columnas_validas].values.tolist()
 
         # Definir funciones internas para el análisis
         def construir_prompt(lista_de_frases):
@@ -126,7 +108,7 @@ async def analizar_excel(file: UploadFile = File(...)):
         bloque = []
         respuestas_api = []
         contador = 0
-        total = len(respuestas_encuesta) * len(columnas_finales)
+        total = len(respuestas_encuesta) * len(columnas_validas)
 
         for fila in respuestas_encuesta:
             for respuesta in fila:
@@ -149,9 +131,9 @@ async def analizar_excel(file: UploadFile = File(...)):
 
         # Reconstruir DataFrame
         respuestas_emociones = [
-            respuestas_api[i:i+len(columnas_finales)] for i in range(0, len(respuestas_api), len(columnas_finales))
+            respuestas_api[i:i+len(columnas_validas)] for i in range(0, len(respuestas_api), len(columnas_validas))
         ]
-        resultados_df = pd.DataFrame(respuestas_emociones, columns=columnas_finales)
+        resultados_df = pd.DataFrame(respuestas_emociones, columns=columnas_validas)
 
         # Guardar Excel base en carpeta fija
         excel_base_path = os.path.join(RESULTADOS_DIR, "emociones_resultado.xlsx")
@@ -162,7 +144,7 @@ async def analizar_excel(file: UploadFile = File(...)):
         ws = wb.active
         fila_grafico = len(resultados_df) + 3
 
-        for col in columnas_finales:
+        for col in columnas_validas:
             datos = resultados_df[col][~resultados_df[col].isin(["Sin respuesta", "Error"])]
             if datos.empty:
                 continue
