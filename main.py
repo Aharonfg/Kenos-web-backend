@@ -194,6 +194,7 @@ async def analizar_excel(file: UploadFile = File(...)):
         if emociones_filtradas:
             emocion_mas_comun = Counter(emociones_filtradas).most_common(1)[0][0]
             emocion_txt_path = os.path.join(RESULTADOS_DIR, "emocion_global.txt")
+            
             with open(emocion_txt_path, "w", encoding="utf-8") as f:
                 f.write(emocion_mas_comun)
 
@@ -205,7 +206,7 @@ async def analizar_excel(file: UploadFile = File(...)):
     except Exception as e:
         print("Error general en /analizar:")
         print(traceback.format_exc())
-        return {"error": "Ha ocurrido un error al procesar el archivo."}
+        return {"error": "Ha ocurrido un error al procesar el archivo." + e}
 
 @app.get("/emocion")
 def obtener_emocion_global():
