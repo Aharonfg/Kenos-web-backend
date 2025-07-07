@@ -144,7 +144,7 @@ async def analizar_excel(file: UploadFile = File(...)):
         ws = wb.active
         fila_grafico = len(resultados_df) + 3
 
-        for col in columnas_validas:
+        for col in resultados_df.columns:
             datos = resultados_df[col][~resultados_df[col].isin(["Sin respuesta", "Error"])]
             if datos.empty:
                 continue
