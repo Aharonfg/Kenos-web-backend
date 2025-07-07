@@ -15,8 +15,7 @@ from PIL import Image
 import tempfile
 import os
 
-# Configura la clave de la API de Gemini
-GEMINI_API_KEY =  
+# Configura la clave de la API de Gemini 
 genai.configure(api_key=GEMINI_API_KEY)
 modelo = genai.GenerativeModel("gemini-1.5-pro")
 
