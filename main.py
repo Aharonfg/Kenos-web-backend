@@ -213,6 +213,7 @@ async def analizar_excel(file: UploadFile = File(...)):
 def obtener_emocion_global():
     try:
         excel_path = os.path.join(RESULTADOS_DIR, "emociones_resultado.xlsx")
+        emocion_txt_path = os.path.join(RESULTADOS_DIR, "emocion_global.txt")
 
         if not os.path.exists(emocion_txt_path) or not os.path.exists(excel_path):
             return {"error": "archivos necesarios no encontrados"}
@@ -248,13 +249,21 @@ def obtener_emocion_global():
             "frustración": -0.5
         }
 
+        # Leer Excel y procesar emociones
         df = pd.read_excel(excel_path)
         emociones = df.values.flatten()
+
+        emociones_filtradas = []
+        for e in emociones:
+            if isinstance(e, str):
+                emocion_normalizada = e.strip().lower()
+                if emocion_normalizada in puntuacion_emociones:
+                    emociones_filtradas.append(emocion_normalizada)
 
         if emociones_filtradas:
             valores = [puntuacion_emociones[e] for e in emociones_filtradas]
             media = sum(valores) / len(valores)
-            porcentaje_satisfaccion = round(((media + 1) / 2) * 100, 2)  # de [-1,1] a [0,100]
+            porcentaje_satisfaccion = round(((media + 1) / 2) * 100, 2)  # Escala de [-1,1] a [0,100]
         else:
             porcentaje_satisfaccion = 0
 
