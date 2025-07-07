@@ -14,10 +14,15 @@ from openpyxl.drawing.image import Image as XLImage
 from PIL import Image
 import tempfile
 import os
+from collections import Counter
 
-# Configura la clave de la API de Gemini 
+# Configura la clave de la API de Gemini  
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 modelo = genai.GenerativeModel("gemini-1.5-pro")
+
+# Carpeta fija para guardar resultados compartidos
+RESULTADOS_DIR = "resultados"
+os.makedirs(RESULTADOS_DIR, exist_ok=True)
 
 # Crear la app FastAPI
 app = FastAPI()
@@ -79,8 +84,6 @@ async def analizar_excel(file: UploadFile = File(...)):
         if not file.filename.endswith((".xlsx", ".xls")):
             return {"error": "Por favor sube un archivo Excel válido (.xlsx o .xls)."}
 
-        tmp_dir = tempfile.mkdtemp()
-
         contenido = await file.read()
         encuesta = pd.read_excel(io.BytesIO(contenido), index_col=0)
 
@@ -127,10 +130,10 @@ async def analizar_excel(file: UploadFile = File(...)):
         for fila in respuestas_encuesta:
             for respuesta in fila:
                 contador += 1
-                if pd.isna(respuesta) or respuesta.strip() == "":
+                if pd.isna(respuesta) or (isinstance(respuesta, str) and respuesta.strip() == ""):
                     bloque.append("Sin respuesta")
                 else:
-                    bloque.append(respuesta.strip())
+                    bloque.append(str(respuesta).strip())
 
                 # Cuando bloque llegue a 10 o sea la última respuesta, enviamos el bloque
                 if len(bloque) == 10 or contador == total:
@@ -149,8 +152,8 @@ async def analizar_excel(file: UploadFile = File(...)):
         ]
         resultados_df = pd.DataFrame(respuestas_emociones, columns=columnas_finales)
 
-        # Guardar Excel base
-        excel_base_path = f"{tmp_dir}/emociones_resultado.xlsx"
+        # Guardar Excel base en carpeta fija
+        excel_base_path = os.path.join(RESULTADOS_DIR, "emociones_resultado.xlsx")
         resultados_df.to_excel(excel_base_path, engine="openpyxl", index=False)
 
         # Abrir para agregar gráficos
@@ -172,7 +175,7 @@ async def analizar_excel(file: UploadFile = File(...)):
             plt.xticks(rotation=45)
             plt.tight_layout()
 
-            img_path = f"{tmp_dir}/{col}.png"
+            img_path = os.path.join(RESULTADOS_DIR, f"{col}.png")
             fig.savefig(img_path)
             plt.close()
 
@@ -182,22 +185,20 @@ async def analizar_excel(file: UploadFile = File(...)):
             ws.add_image(img_excel, f"A{fila_grafico}")
             fila_grafico += 20
 
-        excel_final_path = f"{tmp_dir}/emociones_con_graficos.xlsx"
-        wb.save(excel_final_path)
-        
-        todas_emociones= resultados_df.values.flatten()
-        emociones_filtradas = []
-        for e in todas_emociones:
-            if e not in ['Sin respuesta', 'Error']:
-                emociones_filtradas.append(e)
+        # Guardar Excel con gráficos en la misma carpeta
+        wb.save(excel_base_path)
+
+        # Calcular emoción global
+        todas_emociones = resultados_df.values.flatten()
+        emociones_filtradas = [e for e in todas_emociones if e not in ['Sin respuesta', 'Error']]
         if emociones_filtradas:
-            from collections import Counter
-            emocion_mas_comun = Counter(emociones_filtradas).most_common (1)[0][0]
-            with open("emocion_global.txt", "w", encoding="utf-8") as f:
+            emocion_mas_comun = Counter(emociones_filtradas).most_common(1)[0][0]
+            emocion_txt_path = os.path.join(RESULTADOS_DIR, "emocion_global.txt")
+            with open(emocion_txt_path, "w", encoding="utf-8") as f:
                 f.write(emocion_mas_comun)
 
         return FileResponse(
-            path=excel_final_path,
+            path=excel_base_path,
             filename="emociones_resultado.xlsx",
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
@@ -205,17 +206,17 @@ async def analizar_excel(file: UploadFile = File(...)):
         print("Error general en /analizar:")
         print(traceback.format_exc())
         return {"error": "Ha ocurrido un error al procesar el archivo."}
-from collections import Counter
-import pandas as pd
 
 @app.get("/emocion")
 def obtener_emocion_global():
     try:
-        if not os.path.exists("emocion_global.txt"):
-            return {"error": "archivo no encontrado"}
+        emocion_txt_path = os.path.join(RESULTADOS_DIR, "emocion_global.txt")
+        excel_path = os.path.join(RESULTADOS_DIR, "emociones_resultado.xlsx")
 
-        # Leer emoción más común (como antes)
-        with open("emocion_global.txt", "r", encoding="utf-8") as f:
+        if not os.path.exists(emocion_txt_path) or not os.path.exists(excel_path):
+            return {"error": "archivos necesarios no encontrados"}
+
+        with open(emocion_txt_path, "r", encoding="utf-8") as f:
             emocion = f.read().strip().lower()
 
         # Mapa para el emoji de la emoción dominante
@@ -246,8 +247,7 @@ def obtener_emocion_global():
             "frustración": -0.5
         }
 
-        # Leer emociones desde el Excel generado
-        df = pd.read_excel("emociones_resultado.xlsx")
+        df = pd.read_excel(excel_path)
         emociones = df.values.flatten()
         emociones_filtradas = [e for e in emociones if e in puntuacion_emociones]
 
