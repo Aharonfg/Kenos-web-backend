@@ -17,7 +17,8 @@ import os
 from collections import Counter
 
 # Configura la clave de la API de Gemini  
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+
+genai.configure(api_key=["AIzaSyCi0vrZPLA8B2DTlrR86P93CVN8A7j-04o"])
 modelo = genai.GenerativeModel("gemini-1.5-pro")
 
 # Carpeta fija para guardar resultados compartidos
@@ -36,6 +37,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+columnas_validas = [col for col in encuesta.columns if not str(col).startswith('Unnamed')]
+respuestas_encuesta = encuesta[columnas_validas].values.tolist()
 
 # Función que llama a Gemini para obtener la emoción de una frase
 def obtener_emocion(texto, reintentos=3):
@@ -67,9 +70,8 @@ async def analizar_excel(file: UploadFile = File(...)):
 
         contenido = await file.read()
         encuesta = pd.read_excel(io.BytesIO(contenido), index_col=0)
-        
-        columnas_validas = [col for col in encuesta.columns if not str(col).startswith('Unnamed')]
-        respuestas_encuesta = encuesta[columnas_validas].values.tolist()
+
+        respuestas_encuesta = encuesta[columnas_objetivo].values.tolist()
 
         # Definir funciones internas para el análisis
         def construir_prompt(lista_de_frases):
@@ -103,12 +105,11 @@ async def analizar_excel(file: UploadFile = File(...)):
                     print(traceback.format_exc())
                     time.sleep(3 + intento * 2)
             return ["Error"] * len(frases)
-            
 
         bloque = []
         respuestas_api = []
         contador = 0
-        total = len(respuestas_encuesta) * len(columnas_validas)
+        total = len(respuestas_encuesta) * len(columnas_finales)
 
         for fila in respuestas_encuesta:
             for respuesta in fila:
@@ -131,9 +132,9 @@ async def analizar_excel(file: UploadFile = File(...)):
 
         # Reconstruir DataFrame
         respuestas_emociones = [
-            respuestas_api[i:i+len(columnas_validas)] for i in range(0, len(respuestas_api), len(columnas_validas))
+            respuestas_api[i:i+len(columnas_finales)] for i in range(0, len(respuestas_api), len(columnas_finales))
         ]
-        resultados_df = pd.DataFrame(respuestas_emociones, columns=columnas_validas)
+        resultados_df = pd.DataFrame(respuestas_emociones, columns=columnas_finales)
 
         # Guardar Excel base en carpeta fija
         excel_base_path = os.path.join(RESULTADOS_DIR, "emociones_resultado.xlsx")
@@ -144,7 +145,7 @@ async def analizar_excel(file: UploadFile = File(...)):
         ws = wb.active
         fila_grafico = len(resultados_df) + 3
 
-        for col in resultados_df.columns:
+        for col in columnas_finales:
             datos = resultados_df[col][~resultados_df[col].isin(["Sin respuesta", "Error"])]
             if datos.empty:
                 continue
@@ -194,8 +195,8 @@ async def analizar_excel(file: UploadFile = File(...)):
 @app.get("/emocion")
 def obtener_emocion_global():
     try:
-        excel_path = os.path.join(RESULTADOS_DIR, "emociones_resultado.xlsx")
         emocion_txt_path = os.path.join(RESULTADOS_DIR, "emocion_global.txt")
+        excel_path = os.path.join(RESULTADOS_DIR, "emociones_resultado.xlsx")
 
         if not os.path.exists(emocion_txt_path) or not os.path.exists(excel_path):
             return {"error": "archivos necesarios no encontrados"}
@@ -231,21 +232,14 @@ def obtener_emocion_global():
             "frustración": -0.5
         }
 
-        # Leer Excel y procesar emociones
         df = pd.read_excel(excel_path)
         emociones = df.values.flatten()
-
-        emociones_filtradas = []
-        for e in emociones:
-            if isinstance(e, str):
-                emocion_normalizada = e.strip().lower()
-                if emocion_normalizada in puntuacion_emociones:
-                    emociones_filtradas.append(emocion_normalizada)
+       
 
         if emociones_filtradas:
             valores = [puntuacion_emociones[e] for e in emociones_filtradas]
             media = sum(valores) / len(valores)
-            porcentaje_satisfaccion = round(((media + 1) / 2) * 100, 2)  # Escala de [-1,1] a [0,100]
+            porcentaje_satisfaccion = round(((media + 1) / 2) * 100, 2)  # de [-1,1] a [0,100]
         else:
             porcentaje_satisfaccion = 0
 
