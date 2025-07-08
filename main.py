@@ -200,7 +200,6 @@ async def analizar_excel(file: UploadFile = File(...)):
 
 
     except Exception as e:
-        except Exception as e:
         print("Error general en /analizar:")
         print(traceback.format_exc())
         return {"error": "Ha ocurrido un error al procesar el archivo. " + str(e)}
