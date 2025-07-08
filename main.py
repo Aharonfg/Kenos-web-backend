@@ -194,15 +194,18 @@ async def analizar_excel(file: UploadFile = File(...)):
         if emociones_filtradas:
             emocion_mas_comun = Counter(emociones_filtradas).most_common(1)[0][0]
             emocion_txt_path = os.path.join(RESULTADOS_DIR, "emocion_global.txt")
-            
             with open(emocion_txt_path, "w", encoding="utf-8") as f:
                 f.write(emocion_mas_comun)
 
-
+        return FileResponse(
+            path=excel_base_path,
+            filename="emociones_resultado.xlsx",
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
     except Exception as e:
         print("Error general en /analizar:")
         print(traceback.format_exc())
-        return {"error": "Ha ocurrido un error al procesar el archivo. " + str(e)}
+        return {"error": "Ha ocurrido un error al procesar el archivo."}
 
 @app.get("/emocion")
 def obtener_emocion_global():
@@ -246,7 +249,14 @@ def obtener_emocion_global():
 
         df = pd.read_excel(excel_path)
         emociones = df.values.flatten()
-        emociones_filtradas = [e for e in emociones if e in puntuacion_emociones]
+        emociones_filtradas = []
+
+        for e in emociones:
+            if isinstance(e, str):
+                emocion_normalizada = e.strip().lower()
+                if emocion_normalizada in puntuacion_emociones:
+                    emociones_filtradas.append(emocion_normalizada)
+
 
         if emociones_filtradas:
             valores = [puntuacion_emociones[e] for e in emociones_filtradas]
@@ -277,9 +287,9 @@ def obtener_emocion_global():
     except Exception:
         print("Error al obtener la emoción global:")
         print(traceback.format_exc())
-        return {
+    return {
             "emoji": "❌",
             "emocion": "Error",
             "porcentaje_satisfaccion": "No disponible",
             "estado_general": "❌"
-        }
+        } 
