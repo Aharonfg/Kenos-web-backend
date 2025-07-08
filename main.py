@@ -37,8 +37,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-columnas_validas = [col for col in encuesta.columns if not str(col).startswith('Unnamed')]
-respuestas_encuesta = encuesta[columnas_validas].values.tolist()
+# Columnas originales que vamos a analizar
+columnas_objetivo = [
+    "Autoevaluación del rendimiento - ¿Qué consideras que necesitarías para avanzar en tu desarrollo profesional?",
+    "Valoración de recursos KENOS - Indica las observaciones que consideres sobre el seguimiento de tu persona referente",
+    "Valoración de recursos KENOS - Observaciones:",
+    "Autoevaluación - ¿Cómo crees que te valoran los/las compañeras de equipo?",
+    "Autoevaluación - ¿Cómo crees que te valoran las personas que coordinan tu equipo?",
+    "Valoración General - Observaciones y sugerencias"
+]
+
+# Nombres simplificados para el Excel final
+columnas_finales = [
+    "Autoevaluación del rendimiento",
+    "Seguimiento de persona referente",
+    "Valoración de recursos KENOS",
+    "Valoración por compañeras",
+    "Valoración por coordinadores",
+    "Observaciones y sugerencias"
+]
 
 # Función que llama a Gemini para obtener la emoción de una frase
 def obtener_emocion(texto, reintentos=3):
