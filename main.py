@@ -180,94 +180,39 @@ async def analizar_excel(file: UploadFile = File(...)):
 @app.get("/emocion")
 def obtener_emocion_global():
     try:
-        emocion_txt_path = os.path.join(RESULTADOS_DIR, "emocion_global.txt")
-        excel_path = os.path.join(RESULTADOS_DIR, "emociones_resultado.xlsx")
+        # Asegurar que el archivo exista
+        if not os.path.exists(HISTORIAL_PATH):
+            with open(HISTORIAL_PATH, "w", encoding="utf-8") as f:
+                json.dump([], f)
 
-        if not os.path.exists(emocion_txt_path) or not os.path.exists(excel_path):
-            return {"error": "archivos necesarios no encontrados"}
-
-        with open(emocion_txt_path, "r", encoding="utf-8") as f:
-            emocion = f.read().strip().lower()
-
-        mapa_emoji = {
-            "satisfacción": "😊",
-            "frustración": "😠",
-            "compromiso": "💪",
-            "desmotivación": "😞",
-            "estrés": "😣",
-            "esperanza": "🌟",
-            "inseguridad": "😟",
-            "aprecio": "🤝",
-            "indiferencia": "😐",
-            "agotamiento": "😩"
-        }
-
-        puntuacion_emociones = {
-            "satisfacción": 1,
-            "compromiso": 1,
-            "aprecio": 1,
-            "esperanza": 0.8,
-            "indiferencia": 0,
-            "inseguridad": -0.3,
-            "estrés": -1,
-            "desmotivación": -0.8,
-            "agotamiento": -1,
-            "frustración": -0.5
-        }
-
-        df = pd.read_excel(excel_path)
-        emociones = df.values.flatten()
-        emociones_filtradas = []
-
-        for e in emociones:
-            if isinstance(e, str):
-                emocion_normalizada = e.strip().lower()
-                if emocion_normalizada in puntuacion_emociones:
-                    emociones_filtradas.append(emocion_normalizada)
-
-        if emociones_filtradas:
-            valores = [puntuacion_emociones[e] for e in emociones_filtradas]
-            media = sum(valores) / len(valores)
-            porcentaje_satisfaccion = round(((media + 1) / 2) * 100, 2)
-        else:
-            porcentaje_satisfaccion = 0
-
-        if porcentaje_satisfaccion <= 20:
-            emoji_estado = "😠"
-        elif porcentaje_satisfaccion <= 40:
-            emoji_estado = "😕"
-        elif porcentaje_satisfaccion <= 60:
-            emoji_estado = "😐"
-        elif porcentaje_satisfaccion <= 80:
-            emoji_estado = "🙂"
-        else:
-            emoji_estado = "😄"
-
-        respuesta_actual = {
-            "fecha": time.strftime("%Y-%m-%d"),
-            "emocion": emocion,
-            "emoji_emocion": mapa_emoji.get(emocion, ""),
-            "porcentaje_satisfaccion": porcentaje_satisfaccion,
-            "estado_general": emoji_estado
-        }
-
-        if os.path.exists(HISTORIAL_PATH):
-            with open(HISTORIAL_PATH, "r", encoding="utf-8") as f:
+        # Leer el historial
+        with open(HISTORIAL_PATH, "r", encoding="utf-8") as f:
+            try:
                 historial_emociones = json.load(f)
+            except json.JSONDecodeError:
+                return [{
+                    "fecha": time.strftime("%Y-%m-%d"),
+                    "emocion": "Error",
+                    "emoji_emocion": "",
+                    "porcentaje_satisfaccion": "No disponible",
+                    "estado_general": "❌",
+                    "detalle_error": "El historial está dañado. Sube un nuevo Excel para reiniciar."
+                }]
+
+        # Devolver 1 o 2 entradas
+        if historial_emociones:
+            return historial_emociones[-2:]  # si hay 1, devuelve 1; si hay 2 o más, devuelve las últimas 2
         else:
-            historial_emociones = []
+            return [{
+                "fecha": time.strftime("%Y-%m-%d"),
+                "emocion": "Error",
+                "emoji_emocion": "",
+                "porcentaje_satisfaccion": "No disponible",
+                "estado_general": "❌",
+                "detalle_error": "No hay datos aún. Sube un archivo con /analizar."
+            }]
 
-        if not historial_emociones or historial_emociones[-1]["fecha"] != respuesta_actual["fecha"]:
-            historial_emociones.append(respuesta_actual)
-
-        historial_emociones = historial_emociones[-2:]
-
-        with open(HISTORIAL_PATH, "w", encoding="utf-8") as f:
-            json.dump(historial_emociones, f, ensure_ascii=False, indent=2)
-
-        return historial_emociones
-
-    except Exception:
+    except Exception as e:
         print("Error al obtener la emoción global:")
         print(traceback.format_exc())
         return [{
@@ -275,5 +220,6 @@ def obtener_emocion_global():
             "emocion": "Error",
             "emoji_emocion": "",
             "porcentaje_satisfaccion": "No disponible",
-            "estado_general": "❌"
+            "estado_general": "❌",
+            "detalle_error": str(e)
         }]
