@@ -18,9 +18,9 @@ import re
 import json
 
 # Configura la clave de la API de Gemini
-genai.configure(api_key="AIzaSyCi0vrZPLA8B2DTlrR86P93CVN8A7j-04o")
-modelo = genai.GenerativeModel("gemini-1.5-pro")
+genai.configure(api_key="AIzaSyCi0vrZPLA8B2DTlrR86P93CVN8A7j-04o")  # <-- Sustituye por tu clave real
 
+modelo = genai.GenerativeModel("gemini-1.5-pro")
 app = FastAPI()
 RESULTADOS_DIR = "resultados"
 os.makedirs(RESULTADOS_DIR, exist_ok=True)
@@ -34,43 +34,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-EMOCIONES_VALIDAS = {
-    "satisfacción", "frustración", "compromiso", "desmotivación", "estrés",
-    "esperanza", "inseguridad", "aprecio", "indiferencia", "agotamiento"
-}
 
-def construir_prompt(lista_de_frases):
+def obtener_emocion(texto, reintentos=3):
     prompt = (
-        "Eres una persona de recursos humanos de una consultoría tecnológica llamada Kenos Technology. "
-        "A continuación tienes varias frases que debes analizar. Para cada frase, responde con SOLO una palabra, "
-        "una de estas emociones exactas (sin comillas ni explicaciones): satisfacción, frustración, compromiso, desmotivación, "
-        "estrés, esperanza, inseguridad, aprecio, indiferencia o agotamiento.\n\n"
+        "Eres una persona de recursos humanos de una consultoría tecnológica llamada Kenos Technology y debes determinar "
+        "cuál de las siguientes emociones se relaciona más con esta frase: satisfacción, frustración, compromiso, desmotivación, "
+        "estrés, esperanza, inseguridad, aprecio, indiferencia o agotamiento. "
+        f"La frase es: \"{texto}\". "
+        "Devuélveme solo una palabra: la emoción que más se relacione con la frase dada, sin ninguna palabra o carácter adicional."
     )
-    for idx, frase in enumerate(lista_de_frases, 1):
-        prompt += f"{idx}. \"{frase}\"\n"
-    prompt += "\nResponde en este formato (sin más texto):\n1. emoción\n2. emoción\n..."
-    return prompt
-
-def obtener_emociones_lote(frases, reintentos=3):
-    prompt = construir_prompt(frases)
     for intento in range(reintentos):
         try:
             respuesta = modelo.generate_content(prompt)
-            lineas = respuesta.text.strip().split("\n")
-            emociones = []
-            for linea in lineas:
-                emocion = linea.strip().split(".")[-1].strip().lower()
-                if emocion in EMOCIONES_VALIDAS:
-                    emociones.append(emocion)
-                else:
-                    emociones.append("Error")
+            emocion = respuesta.text.strip().split()[0]
             time.sleep(random.uniform(1.5, 2.5))
-            return emociones
+            return emocion
         except Exception:
-            print(f"Error en intento {intento+1} de obtener emociones lote")
+            print(f"Error al procesar con Gemini. Intento {intento+1}")
             print(traceback.format_exc())
             time.sleep(3 + intento * 2)
-    return ["Error"] * len(frases)
+    return "Error"
+
 
 @app.post("/analizar")
 async def analizar_excel(file: UploadFile = File(...)):
@@ -91,6 +75,38 @@ async def analizar_excel(file: UploadFile = File(...)):
         respuestas_api = []
         total = texto_df.size
         contador = 0
+
+        def construir_prompt(lista_de_frases):
+            prompt = (
+                "Eres una persona de recursos humanos de una consultoría tecnológica llamada Kenos Technology. "
+                "A continuación tienes varias frases que debes analizar. Para cada frase, indica solo una emoción relacionada: "
+                "satisfacción, frustración, compromiso, desmotivación, estrés, esperanza, inseguridad, aprecio, indiferencia o agotamiento.\n\n"
+            )
+            for idx, frase in enumerate(lista_de_frases, 1):
+                prompt += f"{idx}. \"{frase}\"\n"
+            prompt += "\nResponde en formato:\n1. emoción\n2. emoción\n..."
+            return prompt
+
+        def obtener_emociones_lote(frases, reintentos=3):
+            prompt = construir_prompt(frases)
+            for intento in range(reintentos):
+                try:
+                    respuesta = modelo.generate_content(prompt)
+                    lineas = respuesta.text.strip().split("\n")
+                    emociones = []
+                    for linea in lineas:
+                        partes = linea.split(". ", 1)
+                        if len(partes) == 2:
+                            emociones.append(partes[1].strip())
+                        else:
+                            emociones.append("Error")
+                    time.sleep(random.uniform(1.5, 2.5))
+                    return emociones
+                except Exception:
+                    print(f"Error en intento {intento+1} de obtener emociones lote")
+                    print(traceback.format_exc())
+                    time.sleep(3 + intento * 2)
+            return ["Error"] * len(frases)
 
         for fila in texto_df.values:
             for respuesta in fila:
@@ -160,6 +176,7 @@ async def analizar_excel(file: UploadFile = File(...)):
         print(traceback.format_exc())
         return {"error": str(e), "detalles": traceback.format_exc()}
 
+
 @app.get("/emocion")
 def obtener_emocion_global():
     try:
@@ -172,7 +189,6 @@ def obtener_emocion_global():
         with open(emocion_txt_path, "r", encoding="utf-8") as f:
             emocion = f.read().strip().lower()
 
-        # Mapa para el emoji de la emoción dominante
         mapa_emoji = {
             "satisfacción": "😊",
             "frustración": "😠",
@@ -186,7 +202,6 @@ def obtener_emocion_global():
             "agotamiento": "😩"
         }
 
-        # Puntuación para calcular el % de satisfacción
         puntuacion_emociones = {
             "satisfacción": 1,
             "compromiso": 1,
@@ -210,15 +225,13 @@ def obtener_emocion_global():
                 if emocion_normalizada in puntuacion_emociones:
                     emociones_filtradas.append(emocion_normalizada)
 
-
         if emociones_filtradas:
             valores = [puntuacion_emociones[e] for e in emociones_filtradas]
             media = sum(valores) / len(valores)
-            porcentaje_satisfaccion = round(((media + 1) / 2) * 100, 2)  # de [-1,1] a [0,100]
+            porcentaje_satisfaccion = round(((media + 1) / 2) * 100, 2)
         else:
             porcentaje_satisfaccion = 0
 
-        # Emoji de estado general según el % de satisfacción
         if porcentaje_satisfaccion <= 20:
             emoji_estado = "😠"
         elif porcentaje_satisfaccion <= 40:
@@ -230,19 +243,38 @@ def obtener_emocion_global():
         else:
             emoji_estado = "😄"
 
-        return {
-            "emoji": mapa_emoji.get(emocion, "❓"),
+        respuesta_actual = {
+            "fecha": time.strftime("%Y-%m-%d"),
             "emocion": emocion,
+            "emoji": mapa_emoji.get(emocion, ""),
             "porcentaje_satisfaccion": porcentaje_satisfaccion,
             "estado_general": emoji_estado
         }
 
+        if os.path.exists(HISTORIAL_PATH):
+            with open(HISTORIAL_PATH, "r", encoding="utf-8") as f:
+                historial_emociones = json.load(f)
+        else:
+            historial_emociones = []
+
+            
+            historial_emociones.append(respuesta_actual)
+            
+            historial_emociones = historial_emociones[-2:]
+
+        with open(HISTORIAL_PATH, "w", encoding="utf-8") as f:
+            json.dump(historial_emociones, f, ensure_ascii=False, indent=2)
+
+        return historial_emociones
+
     except Exception:
         print("Error al obtener la emoción global:")
         print(traceback.format_exc())
-    return {
-            "emoji": "❌",
+        return [{
+            "fecha": time.strftime("%Y-%m-%d"),
             "emocion": "Error",
+            "emoji": "",
             "porcentaje_satisfaccion": "No disponible",
             "estado_general": "❌"
-        } 
+        }]
+
