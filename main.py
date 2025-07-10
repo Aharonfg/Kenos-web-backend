@@ -11,14 +11,14 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as XLImage
-from PIL import Image
-import os
 from collections import Counter
-import re
+import os
 import json
+import tempfile
 
-# Configura la clave de la API de Gemini
-genai.configure(api_key="")
+# Configura la clave de la API de Gemini (pon tu clave real aquí)
+GEMINI_API_KEY = "TU_API_KEY_AQUI"
+genai.configure(api_key=GEMINI_API_KEY)
 modelo = genai.GenerativeModel("gemini-1.5-pro")
 
 app = FastAPI()
@@ -39,14 +39,12 @@ EMOCIONES_VALIDAS = [
     "estrés", "esperanza", "inseguridad", "aprecio", "indiferencia", "agotamiento"
 ]
 
-
 def filtrar_emocion_valida(texto):
     texto = texto.lower().strip()
     for emocion in EMOCIONES_VALIDAS:
         if emocion in texto:
             return emocion
     return "Error"
-
 
 def obtener_emocion(texto, reintentos=3):
     prompt = (
@@ -66,7 +64,6 @@ def obtener_emocion(texto, reintentos=3):
             time.sleep(3 + intento * 2)
     return "Error"
 
-
 def construir_prompt(lista_de_frases):
     prompt = (
         "Eres una persona de recursos humanos de una consultoría tecnológica llamada Kenos Technology. "
@@ -77,7 +74,6 @@ def construir_prompt(lista_de_frases):
         prompt += f"{idx}. \"{frase}\"\n"
     prompt += "\nResponde así:\n1. emoción\n2. emoción\n..."
     return prompt
-
 
 def obtener_emociones_lote(frases, reintentos=3):
     prompt = construir_prompt(frases)
@@ -98,7 +94,6 @@ def obtener_emociones_lote(frases, reintentos=3):
         except Exception:
             time.sleep(3 + intento * 2)
     return ["Error"] * len(frases)
-
 
 @app.post("/analizar")
 async def analizar_excel(file: UploadFile = File(...)):
@@ -127,6 +122,41 @@ async def analizar_excel(file: UploadFile = File(...)):
         excel_base_path = os.path.join(RESULTADOS_DIR, "emociones_resultado.xlsx")
         resultados_df.to_excel(excel_base_path, engine="openpyxl", index=False)
 
+        # Insertar gráficos en Excel
+        wb = load_workbook(excel_base_path)
+        ws = wb.active
+
+        img_width_px = int(10 * 96)  # 10 pulgadas * 96 dpi
+        img_height_px = int(8 * 96)  # 8 pulgadas * 96 dpi
+        separacion_filas = 40
+        fila_inicial = len(resultados_df) + 3
+
+        for i, col in enumerate(columnas_texto):
+            plt.figure(figsize=(10, 8))
+            ax = sns.countplot(x=resultados_df[col], order=EMOCIONES_VALIDAS)
+            plt.title(f"Distribución de emociones para columna: {col}")
+            plt.xlabel("Emoción")
+            plt.ylabel("Frecuencia")
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
+                plt.savefig(tmpfile.name, dpi=96)
+                plt.close()
+
+                img = XLImage(tmpfile.name)
+                img.width = img_width_px
+                img.height = img_height_px
+
+                posicion_fila = fila_inicial + i * separacion_filas
+                posicion_celda = f"A{posicion_fila}"
+                ws.add_image(img, posicion_celda)
+
+            os.unlink(tmpfile.name)
+
+        wb.save(excel_base_path)
+
+        # Guardar emoción global más común
         todas_emociones = resultados_df.values.flatten()
         emociones_filtradas = [e for e in todas_emociones if e in EMOCIONES_VALIDAS]
         if emociones_filtradas:
@@ -141,7 +171,6 @@ async def analizar_excel(file: UploadFile = File(...)):
         )
     except Exception as e:
         return {"error": str(e)}
-
 
 @app.get("/emocion")
 def obtener_emocion_global():
