@@ -12,51 +12,29 @@ import seaborn as sns
 from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as XLImage
 from PIL import Image
-import tempfile
 import os
 from collections import Counter
+import re
+import json
 
-# Configura la clave de la API de Gemini  
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+# Configura la clave de la API de Gemini
+genai.configure(api_key="AIzaSyCi0vrZPLA8B2DTlrR86P93CVN8A7j-04o")  # <-- Sustituye por tu clave real
+
 modelo = genai.GenerativeModel("gemini-1.5-pro")
-
-# Carpeta fija para guardar resultados compartidos
+app = FastAPI()
 RESULTADOS_DIR = "resultados"
 os.makedirs(RESULTADOS_DIR, exist_ok=True)
+HISTORIAL_PATH = os.path.join(RESULTADOS_DIR, "historial_emociones.json")
 
-# Crear la app FastAPI
-app = FastAPI()
-
-# Configurar CORS para permitir frontend externo
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Columnas originales que vamos a analizar
-columnas_objetivo = [
-    "Autoevaluación del rendimiento - ¿Qué consideras que necesitarías para avanzar en tu desarrollo profesional?",
-    "Valoración de recursos KENOS - Indica las observaciones que consideres sobre el seguimiento de tu persona referente",
-    "Valoración de recursos KENOS - Observaciones:",
-    "Autoevaluación - ¿Cómo crees que te valoran los/las compañeras de equipo?",
-    "Autoevaluación - ¿Cómo crees que te valoran las personas que coordinan tu equipo?",
-    "Valoración General - Observaciones y sugerencias"
-]
 
-# Nombres simplificados para el Excel final
-columnas_finales = [
-    "Autoevaluación del rendimiento",
-    "Seguimiento de persona referente",
-    "Valoración de recursos KENOS",
-    "Valoración por compañeras",
-    "Valoración por coordinadores",
-    "Observaciones y sugerencias"
-]
-
-# Función que llama a Gemini para obtener la emoción de una frase
 def obtener_emocion(texto, reintentos=3):
     prompt = (
         "Eres una persona de recursos humanos de una consultoría tecnológica llamada Kenos Technology y debes determinar "
@@ -69,7 +47,7 @@ def obtener_emocion(texto, reintentos=3):
         try:
             respuesta = modelo.generate_content(prompt)
             emocion = respuesta.text.strip().split()[0]
-            time.sleep(random.uniform(1.5, 2.5))  # Evita rate limit
+            time.sleep(random.uniform(1.5, 2.5))
             return emocion
         except Exception:
             print(f"Error al procesar con Gemini. Intento {intento+1}")
@@ -77,19 +55,27 @@ def obtener_emocion(texto, reintentos=3):
             time.sleep(3 + intento * 2)
     return "Error"
 
+
 @app.post("/analizar")
 async def analizar_excel(file: UploadFile = File(...)):
     try:
-        # Validar que el archivo sea Excel
         if not file.filename.endswith((".xlsx", ".xls")):
             return {"error": "Por favor sube un archivo Excel válido (.xlsx o .xls)."}
 
         contenido = await file.read()
-        encuesta = pd.read_excel(io.BytesIO(contenido), index_col=0)
+        encuesta = pd.read_excel(io.BytesIO(contenido))
 
-        respuestas_encuesta = encuesta[columnas_objetivo].values.tolist()
+        columnas_texto = [col for col in encuesta.columns if encuesta[col].dropna().astype(str).str.strip().any()]
+        if not columnas_texto:
+            return {"error": "El archivo Excel no contiene columnas con texto para analizar."}
 
-        # Definir funciones internas para el análisis
+        texto_df = encuesta[columnas_texto].fillna("Sin respuesta").astype(str)
+
+        bloque = []
+        respuestas_api = []
+        total = texto_df.size
+        contador = 0
+
         def construir_prompt(lista_de_frases):
             prompt = (
                 "Eres una persona de recursos humanos de una consultoría tecnológica llamada Kenos Technology. "
@@ -114,7 +100,7 @@ async def analizar_excel(file: UploadFile = File(...)):
                             emociones.append(partes[1].strip())
                         else:
                             emociones.append("Error")
-                    time.sleep(random.uniform(1.5, 2.5))  # evitar rate limit
+                    time.sleep(random.uniform(1.5, 2.5))
                     return emociones
                 except Exception:
                     print(f"Error en intento {intento+1} de obtener emociones lote")
@@ -122,46 +108,29 @@ async def analizar_excel(file: UploadFile = File(...)):
                     time.sleep(3 + intento * 2)
             return ["Error"] * len(frases)
 
-        bloque = []
-        respuestas_api = []
-        contador = 0
-        total = len(respuestas_encuesta) * len(columnas_finales)
-
-        for fila in respuestas_encuesta:
+        for fila in texto_df.values:
             for respuesta in fila:
                 contador += 1
-                if pd.isna(respuesta) or (isinstance(respuesta, str) and respuesta.strip() == ""):
-                    bloque.append("Sin respuesta")
-                else:
-                    bloque.append(str(respuesta).strip())
+                bloque.append(respuesta.strip())
 
-                # Cuando bloque llegue a 10 o sea la última respuesta, enviamos el bloque
                 if len(bloque) == 10 or contador == total:
                     emociones_lote = obtener_emociones_lote(bloque)
                     respuestas_api.extend(emociones_lote)
                     bloque = []
-                    print(f"Procesadas {contador}/{total} respuestas")
 
-        if len(bloque) > 0:
-            emociones_lote = obtener_emociones_lote(bloque)
-            respuestas_api.extend(emociones_lote)
-
-        # Reconstruir DataFrame
-        respuestas_emociones = [
-            respuestas_api[i:i+len(columnas_finales)] for i in range(0, len(respuestas_api), len(columnas_finales))
+        resultados_emociones = [
+            respuestas_api[i:i + len(columnas_texto)] for i in range(0, len(respuestas_api), len(columnas_texto))
         ]
-        resultados_df = pd.DataFrame(respuestas_emociones, columns=columnas_finales)
+        resultados_df = pd.DataFrame(resultados_emociones, columns=columnas_texto)
 
-        # Guardar Excel base en carpeta fija
         excel_base_path = os.path.join(RESULTADOS_DIR, "emociones_resultado.xlsx")
         resultados_df.to_excel(excel_base_path, engine="openpyxl", index=False)
 
-        # Abrir para agregar gráficos
         wb = load_workbook(excel_base_path)
         ws = wb.active
         fila_grafico = len(resultados_df) + 3
 
-        for col in columnas_finales:
+        for col in columnas_texto:
             datos = resultados_df[col][~resultados_df[col].isin(["Sin respuesta", "Error"])]
             if datos.empty:
                 continue
@@ -175,7 +144,9 @@ async def analizar_excel(file: UploadFile = File(...)):
             plt.xticks(rotation=45)
             plt.tight_layout()
 
-            img_path = os.path.join(RESULTADOS_DIR, f"{col}.png")
+            nombre_archivo_seguro = re.sub(r'[\\/*?:"<>|]', "_", col)
+            img_path = os.path.join(RESULTADOS_DIR, f"{nombre_archivo_seguro}.png")
+
             fig.savefig(img_path)
             plt.close()
 
@@ -183,12 +154,10 @@ async def analizar_excel(file: UploadFile = File(...)):
             pil_img.save(img_path)
             img_excel = XLImage(img_path)
             ws.add_image(img_excel, f"A{fila_grafico}")
-            fila_grafico += 20
+            fila_grafico += 40
 
-        # Guardar Excel con gráficos en la misma carpeta
         wb.save(excel_base_path)
 
-        # Calcular emoción global
         todas_emociones = resultados_df.values.flatten()
         emociones_filtradas = [e for e in todas_emociones if e not in ['Sin respuesta', 'Error']]
         if emociones_filtradas:
@@ -205,7 +174,8 @@ async def analizar_excel(file: UploadFile = File(...)):
     except Exception as e:
         print("Error general en /analizar:")
         print(traceback.format_exc())
-        return {"error": "Ha ocurrido un error al procesar el archivo."}
+        return {"error": str(e), "detalles": traceback.format_exc()}
+
 
 @app.get("/emocion")
 def obtener_emocion_global():
@@ -219,7 +189,6 @@ def obtener_emocion_global():
         with open(emocion_txt_path, "r", encoding="utf-8") as f:
             emocion = f.read().strip().lower()
 
-        # Mapa para el emoji de la emoción dominante
         mapa_emoji = {
             "satisfacción": "😊",
             "frustración": "😠",
@@ -233,7 +202,6 @@ def obtener_emocion_global():
             "agotamiento": "😩"
         }
 
-        # Puntuación para calcular el % de satisfacción
         puntuacion_emociones = {
             "satisfacción": 1,
             "compromiso": 1,
@@ -257,15 +225,13 @@ def obtener_emocion_global():
                 if emocion_normalizada in puntuacion_emociones:
                     emociones_filtradas.append(emocion_normalizada)
 
-
         if emociones_filtradas:
             valores = [puntuacion_emociones[e] for e in emociones_filtradas]
             media = sum(valores) / len(valores)
-            porcentaje_satisfaccion = round(((media + 1) / 2) * 100, 2)  # de [-1,1] a [0,100]
+            porcentaje_satisfaccion = round(((media + 1) / 2) * 100, 2)
         else:
             porcentaje_satisfaccion = 0
 
-        # Emoji de estado general según el % de satisfacción
         if porcentaje_satisfaccion <= 20:
             emoji_estado = "😠"
         elif porcentaje_satisfaccion <= 40:
@@ -277,19 +243,37 @@ def obtener_emocion_global():
         else:
             emoji_estado = "😄"
 
-        return {
-            "emoji": mapa_emoji.get(emocion, "❓"),
+        respuesta_actual = {
+            "fecha": time.strftime("%Y-%m-%d"),
             "emocion": emocion,
+            "emoji_emocion": mapa_emoji.get(emocion, ""),
             "porcentaje_satisfaccion": porcentaje_satisfaccion,
             "estado_general": emoji_estado
         }
 
+        if os.path.exists(HISTORIAL_PATH):
+            with open(HISTORIAL_PATH, "r", encoding="utf-8") as f:
+                historial_emociones = json.load(f)
+        else:
+            historial_emociones = []
+
+        if not historial_emociones or historial_emociones[-1]["fecha"] != respuesta_actual["fecha"]:
+            historial_emociones.append(respuesta_actual)
+
+        historial_emociones = historial_emociones[-2:]
+
+        with open(HISTORIAL_PATH, "w", encoding="utf-8") as f:
+            json.dump(historial_emociones, f, ensure_ascii=False, indent=2)
+
+        return historial_emociones
+
     except Exception:
         print("Error al obtener la emoción global:")
         print(traceback.format_exc())
-    return {
-            "emoji": "❌",
+        return [{
+            "fecha": time.strftime("%Y-%m-%d"),
             "emocion": "Error",
+            "emoji_emocion": "",
             "porcentaje_satisfaccion": "No disponible",
             "estado_general": "❌"
-        } 
+        }]
