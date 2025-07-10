@@ -18,7 +18,7 @@ import re
 import json
 
 # Configura la clave de la API de Gemini
-genai.configure(api_key="AIzaSyCi0vrZPLA8B2DTlrR86P93CVN8A7j-04o")
+genai.configure(api_key="")
 modelo = genai.GenerativeModel("gemini-1.5-pro")
 
 app = FastAPI()
