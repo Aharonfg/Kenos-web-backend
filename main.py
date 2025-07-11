@@ -14,13 +14,17 @@ from collections import Counter
 import os
 import json
 import tempfile
+from dotenv import load_dotenv
 
 # Configura tu clave de API
+load_dotenv()
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
-    raise ValueError("No se encontró la variable de entorno GEMINI_API_KEY")
+    raise ValueError("No se ha definido la variable de entorno GEMINI_API_KEY")
 
 genai.configure(api_key=GEMINI_API_KEY)
+
 
 modelo = genai.GenerativeModel("gemini-1.5-pro")
 
