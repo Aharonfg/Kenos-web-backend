@@ -40,11 +40,11 @@ EMOCIONES_VALIDAS = [
 ]
 
 def filtrar_emocion_valida(texto):
-    texto = texto.lower().strip()
-    for emocion in EMOCIONES_VALIDAS:
-        if emocion in texto:
-            return emocion
+    texto_limpio = texto.strip().lower()
+    if texto_limpio in EMOCIONES_VALIDAS:
+        return texto_limpio
     return "Error"
+
 
 def obtener_emocion(texto, reintentos=3):
     prompt = (
@@ -52,7 +52,7 @@ def obtener_emocion(texto, reintentos=3):
         "Debes indicar qué emoción describe mejor esta frase entre las siguientes: satisfacción, frustración, compromiso, desmotivación, "
         "estrés, esperanza, inseguridad, aprecio, indiferencia o agotamiento. "
         f"Frase: \"{texto}\". "
-        "Responde SOLO con una palabra exacta de esa lista."
+        "IMPORTANTE: Responde ÚNICAMENTE con una sola palabra de la lista. No expliques, no añadas signos, ni comentarios. Solo escribe: una emoción. Cualquier desviación será rechazada."
     )
     for intento in range(reintentos):
         try:
@@ -65,11 +65,13 @@ def obtener_emocion(texto, reintentos=3):
     return "Error"
 
 def construir_prompt(lista_de_frases):
-    prompt = (
-        "Eres una persona de recursos humanos de una consultoría tecnológica llamada Kenos Technology. "
-        "Para cada frase, responde con solo una palabra entre: satisfacción, frustración, compromiso, desmotivación, "
-        "estrés, esperanza, inseguridad, aprecio, indiferencia o agotamiento.\n\n"
-    )
+    prompt += (
+    "\nResponde con el siguiente formato EXACTO:\n"
+    "1. emoción\n2. emoción\n...\n"
+    "IMPORTANTE: Usa SOLO una palabra de la lista. NO añadas comentarios, explicaciones, ni signos."
+)
+
+    
     for idx, frase in enumerate(lista_de_frases, 1):
         prompt += f"{idx}. \"{frase}\"\n"
     prompt += "\nResponde así:\n1. emoción\n2. emoción\n..."
