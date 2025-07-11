@@ -16,7 +16,12 @@ import json
 import tempfile
 
 # Configura tu clave de API
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    raise ValueError("No se encontró la variable de entorno GEMINI_API_KEY")
+
 genai.configure(api_key=GEMINI_API_KEY)
+
 modelo = genai.GenerativeModel("gemini-1.5-pro")
 
 app = FastAPI()
