@@ -7,3 +7,4 @@ seaborn
 openpyxl
 Pillow
 python-multipart
+python-dotenv
