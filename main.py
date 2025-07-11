@@ -17,7 +17,6 @@ import tempfile
 from dotenv import load_dotenv
 
 # Configura tu clave de API
-load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
