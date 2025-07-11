@@ -65,7 +65,7 @@ def obtener_emocion(texto, reintentos=3):
     return "Error"
 
 def construir_prompt(lista_de_frases):
-    prompt += (
+    prompt = (
     "\nResponde con el siguiente formato EXACTO:\n"
     "1. emoción\n2. emoción\n...\n"
     "IMPORTANTE: Usa SOLO una palabra de la lista. NO añadas comentarios, explicaciones, ni signos."
