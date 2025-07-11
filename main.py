@@ -16,7 +16,6 @@ import json
 import tempfile
 
 # Configura tu clave de API
-GEMINI_API_KEY = ""
 genai.configure(api_key=GEMINI_API_KEY)
 modelo = genai.GenerativeModel("gemini-1.5-pro")
 
