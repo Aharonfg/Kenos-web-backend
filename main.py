@@ -5,7 +5,6 @@ import pandas as pd
 import google.generativeai as genai
 import time
 import random
-import traceback
 import io
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -16,8 +15,8 @@ import os
 import json
 import tempfile
 
-# Configura la clave de la API de Gemini (pon tu clave real aquí)
-GEMINI_API_KEY = "TU_API_KEY_AQUI"
+# Configura tu clave de API
+GEMINI_API_KEY = "AIzaSyDH3NG_n6bPzKXgVjsWWSiOs8GjKacuUyQ"
 genai.configure(api_key=GEMINI_API_KEY)
 modelo = genai.GenerativeModel("gemini-1.5-pro")
 
@@ -27,8 +26,7 @@ os.makedirs(RESULTADOS_DIR, exist_ok=True)
 HISTORIAL_PATH = os.path.join(RESULTADOS_DIR, "historial_emociones.json")
 
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
+    CORSMiddleware, allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -36,23 +34,21 @@ app.add_middleware(
 
 EMOCIONES_VALIDAS = [
     "satisfacción", "frustración", "compromiso", "desmotivación",
-    "estrés", "esperanza", "inseguridad", "aprecio", "indiferencia", "agotamiento"
+    "estrés", "esperanza", "inseguridad", "aprecio", 
+    "indiferencia", "agotamiento"
 ]
 
 def filtrar_emocion_valida(texto):
-    texto_limpio = texto.strip().lower()
+    texto_limpio = texto.lower().strip()
     if texto_limpio in EMOCIONES_VALIDAS:
         return texto_limpio
     return "Error"
 
-
 def obtener_emocion(texto, reintentos=3):
     prompt = (
-        "Eres una persona de recursos humanos de una consultoría tecnológica llamada Kenos Technology. "
-        "Debes indicar qué emoción describe mejor esta frase entre las siguientes: satisfacción, frustración, compromiso, desmotivación, "
-        "estrés, esperanza, inseguridad, aprecio, indiferencia o agotamiento. "
-        f"Frase: \"{texto}\". "
-        "IMPORTANTE: Responde ÚNICAMENTE con una sola palabra de la lista. No expliques, no añadas signos, ni comentarios. Solo escribe: una emoción. Cualquier desviación será rechazada."
+        "Eres una persona de recursos humanos de una consultoría tecnológica."
+        f"Frase: \"{texto}\". Responde SOLO con una palabra exacta de la lista: "
+        + ", ".join(EMOCIONES_VALIDAS) + "."
     )
     for intento in range(reintentos):
         try:
@@ -64,18 +60,15 @@ def obtener_emocion(texto, reintentos=3):
             time.sleep(3 + intento * 2)
     return "Error"
 
-def construir_prompt(lista_de_frases):
-    prompt = (
-    "\nResponde con el siguiente formato EXACTO:\n"
-    "1. emoción\n2. emoción\n...\n"
-    "IMPORTANTE: Usa SOLO una palabra de la lista. NO añadas comentarios, explicaciones, ni signos."
-)
-
-    
-    for idx, frase in enumerate(lista_de_frases, 1):
-        prompt += f"{idx}. \"{frase}\"\n"
-    prompt += "\nResponde así:\n1. emoción\n2. emoción\n..."
-    return prompt
+def construir_prompt(lista):
+    texto = (
+        "Eres una persona de RRHH. Para cada frase, responde con UNA palabra "
+        "exacta entre: " + ", ".join(EMOCIONES_VALIDAS) + ".\n\n"
+    )
+    for i, f in enumerate(lista, 1):
+        texto += f"{i}. \"{f}\"\n"
+    texto += "\nResponde así:\n1. emoción\n2. emoción..."
+    return texto
 
 def obtener_emociones_lote(frases, reintentos=3):
     prompt = construir_prompt(frases)
@@ -83,16 +76,13 @@ def obtener_emociones_lote(frases, reintentos=3):
         try:
             respuesta = modelo.generate_content(prompt)
             lineas = respuesta.text.strip().split("\n")
-            emociones = []
+            resultado = []
             for linea in lineas:
                 partes = linea.split(". ", 1)
-                if len(partes) == 2:
-                    emocion = filtrar_emocion_valida(partes[1])
-                    emociones.append(emocion)
-                else:
-                    emociones.append("Error")
+                emocion = filtrar_emocion_valida(partes[1] if len(partes) == 2 else "")
+                resultado.append(emocion)
             time.sleep(random.uniform(1.5, 2.5))
-            return emociones
+            return resultado
         except Exception:
             time.sleep(3 + intento * 2)
     return ["Error"] * len(frases)
@@ -102,144 +92,126 @@ async def analizar_excel(file: UploadFile = File(...)):
     try:
         contenido = await file.read()
         encuesta = pd.read_excel(io.BytesIO(contenido))
-        columnas_texto = [col for col in encuesta.columns if encuesta[col].dropna().astype(str).str.strip().any()]
-        texto_df = encuesta[columnas_texto].fillna("Sin respuesta").astype(str)
+        columnas = [c for c in encuesta.columns if encuesta[c].dropna().astype(str).str.strip().any()]
+        df_texto = encuesta[columnas].fillna("Sin respuesta").astype(str)
 
-        bloque, respuestas_api = [], []
-        total, contador = texto_df.size, 0
+        respuestas = []
+        tmp = []
+        total = df_texto.size
+        cont = 0
+        for fila in df_texto.values:
+            for celda in fila:
+                cont += 1
+                tmp.append(celda.strip())
+                if len(tmp) == 10 or cont == total:
+                    respuestas.extend(obtener_emociones_lote(tmp))
+                    tmp = []
 
-        for fila in texto_df.values:
-            for respuesta in fila:
-                contador += 1
-                bloque.append(respuesta.strip())
-                if len(bloque) == 10 or contador == total:
-                    respuestas_api.extend(obtener_emociones_lote(bloque))
-                    bloque = []
+        datos = [respuestas[i:i+len(columnas)] for i in range(0, len(respuestas), len(columnas))]
+        df_res = pd.DataFrame(datos, columns=columnas)
+        ruta_excel = os.path.join(RESULTADOS_DIR, "emociones_resultado.xlsx")
+        df_res.to_excel(ruta_excel, index=False, engine="openpyxl")
 
-        resultados_emociones = [
-            respuestas_api[i:i + len(columnas_texto)] for i in range(0, len(respuestas_api), len(columnas_texto))
-        ]
-        resultados_df = pd.DataFrame(resultados_emociones, columns=columnas_texto)
-
-        excel_base_path = os.path.join(RESULTADOS_DIR, "emociones_resultado.xlsx")
-        resultados_df.to_excel(excel_base_path, engine="openpyxl", index=False)
-
-        # Insertar gráficos en Excel
-        wb = load_workbook(excel_base_path)
+        wb = load_workbook(ruta_excel)
         ws = wb.active
 
-        img_width_px = int(10 * 96)  # 10 pulgadas * 96 dpi
-        img_height_px = int(8 * 96)  # 8 pulgadas * 96 dpi
-        separacion_filas = 40
-        fila_inicial = len(resultados_df) + 3
+        img_paths = []
+        ancho = 10*96
+        alto = 8*96
+        paso = 40
+        inicio = len(df_res) + 3
 
-        for i, col in enumerate(columnas_texto):
+        for i, col in enumerate(columnas):
             plt.figure(figsize=(10, 8))
-            ax = sns.countplot(x=resultados_df[col], order=EMOCIONES_VALIDAS)
-            plt.title(f"Distribución de emociones para columna: {col}")
-            plt.xlabel("Emoción")
-            plt.ylabel("Frecuencia")
+            sns.countplot(x=df_res[col], order=EMOCIONES_VALIDAS)
+            plt.title(f"Distribución: {col}")
             plt.xticks(rotation=45)
             plt.tight_layout()
 
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
-                plt.savefig(tmpfile.name, dpi=96)
-                plt.close()
+            tmpf = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+            plt.savefig(tmpf.name, dpi=96)
+            plt.close()
 
-                img = XLImage(tmpfile.name)
-                img.width = img_width_px
-                img.height = img_height_px
+            img = XLImage(tmpf.name)
+            img.width = ancho
+            img.height = alto
+            ws.add_image(img, f"A{inicio + i*paso}")
+            img_paths.append(tmpf.name)
 
-                posicion_fila = fila_inicial + i * separacion_filas
-                posicion_celda = f"A{posicion_fila}"
-                ws.add_image(img, posicion_celda)
+        wb.save(ruta_excel)
 
-            os.unlink(tmpfile.name)
+        for p in img_paths:
+            try:
+                os.unlink(p)
+            except Exception as e:
+                print(f"No se pudo borrar {p}: {e}")
 
-        wb.save(excel_base_path)
-
-        # Guardar emoción global más común
-        todas_emociones = resultados_df.values.flatten()
-        emociones_filtradas = [e for e in todas_emociones if e in EMOCIONES_VALIDAS]
-        if emociones_filtradas:
-            emocion_mas_comun = Counter(emociones_filtradas).most_common(1)[0][0]
+        emos = [e for e in df_res.values.flatten() if e in EMOCIONES_VALIDAS]
+        if emos:
+            mas = Counter(emos).most_common(1)[0][0]
             with open(os.path.join(RESULTADOS_DIR, "emocion_global.txt"), "w", encoding="utf-8") as f:
-                f.write(emocion_mas_comun)
+                f.write(mas)
 
-        return FileResponse(
-            path=excel_base_path,
-            filename="emociones_resultado.xlsx",
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    except Exception as e:
-        return {"error": str(e)}
+        return FileResponse(ruta_excel, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            filename="emociones_resultado.xlsx")
+
+    except Exception as ex:
+        return {"error": str(ex)}
 
 @app.get("/emocion")
 def obtener_emocion_global():
     try:
-        emocion_txt_path = os.path.join(RESULTADOS_DIR, "emocion_global.txt")
-        excel_path = os.path.join(RESULTADOS_DIR, "emociones_resultado.xlsx")
-        if not os.path.exists(emocion_txt_path) or not os.path.exists(excel_path):
+        txt = os.path.join(RESULTADOS_DIR, "emocion_global.txt")
+        xls = os.path.join(RESULTADOS_DIR, "emociones_resultado.xlsx")
+        if not os.path.exists(txt) or not os.path.exists(xls):
             return {"error": "archivos necesarios no encontrados"}
 
-        with open(emocion_txt_path, "r", encoding="utf-8") as f:
-            emocion = f.read().strip().lower()
-
-        mapa_emoji = {
-            "satisfacción": "😊", "frustración": "😠", "compromiso": "💪", "desmotivación": "😞",
-            "estrés": "😣", "esperanza": "🌟", "inseguridad": "😟", "aprecio": "🤝",
-            "indiferencia": "😐", "agotamiento": "😩"
+        emocion = open(txt, encoding="utf-8").read().strip().lower()
+        mapa = {
+            "satisfacción": "😊", "frustración": "😠", "compromiso": "💪",
+            "desmotivación": "😞", "estrés": "😣", "esperanza": "🌟",
+            "inseguridad": "😟", "aprecio": "🤝", "indiferencia": "😐",
+            "agotamiento": "😩"
+        }
+        punt = {
+            "satisfacción": 1, "compromiso": 1, "aprecio": 1,
+            "esperanza": 0.8, "indiferencia": 0,
+            "inseguridad": -0.3, "estrés": -1,
+            "desmotivación": -0.8, "agotamiento": -1,
+            "frustración": -0.5
         }
 
-        puntuacion_emociones = {
-            "satisfacción": 1, "compromiso": 1, "aprecio": 1, "esperanza": 0.8,
-            "indiferencia": 0, "inseguridad": -0.3, "estrés": -1,
-            "desmotivación": -0.8, "agotamiento": -1, "frustración": -0.5
-        }
-
-        df = pd.read_excel(excel_path)
-        emociones = df.values.flatten()
-        emociones_filtradas = [e.strip().lower() for e in emociones if e in puntuacion_emociones]
-
-        if emociones_filtradas:
-            valores = [puntuacion_emociones[e] for e in emociones_filtradas]
-            media = sum(valores) / len(valores)
-            porcentaje_satisfaccion = round(((media + 1) / 2) * 100, 2)
+        df = pd.read_excel(xls)
+        emos = [e for e in df.values.flatten() if e in punt]
+        if emos:
+            media = sum(punt[e] for e in emos)/len(emos)
+            pct = round(((media + 1)/2)*100, 2)
         else:
-            porcentaje_satisfaccion = 0
+            pct = 0
 
-        if porcentaje_satisfaccion <= 20:
-            emoji_estado = "😠"
-        elif porcentaje_satisfaccion <= 40:
-            emoji_estado = "😕"
-        elif porcentaje_satisfaccion <= 60:
-            emoji_estado = "😐"
-        elif porcentaje_satisfaccion <= 80:
-            emoji_estado = "🙂"
-        else:
-            emoji_estado = "😄"
+        if pct <= 20: estado = "😠"
+        elif pct <= 40: estado = "😕"
+        elif pct <= 60: estado = "😐"
+        elif pct <= 80: estado = "🙂"
+        else: estado = "😄"
 
-        respuesta_actual = {
+        actual = {
             "fecha": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "emocion": emocion if emocion in puntuacion_emociones else "Error",
-            "emoji": mapa_emoji.get(emocion, ""),
-            "porcentaje_satisfaccion": porcentaje_satisfaccion,
-            "estado_general": emoji_estado
+            "emocion": emocion if emocion in punt else "Error",
+            "emoji": mapa.get(emocion, ""),
+            "porcentaje_satisfaccion": pct,
+            "estado_general": estado
         }
 
+        hist = []
         if os.path.exists(HISTORIAL_PATH):
-            with open(HISTORIAL_PATH, "r", encoding="utf-8") as f:
-                historial_emociones = json.load(f)
-        else:
-            historial_emociones = []
+            hist = json.load(open(HISTORIAL_PATH, "r", encoding="utf-8"))
 
-        historial_emociones.append(respuesta_actual)
-        historial_emociones = historial_emociones[-2:]
+        hist.append(actual)
+        hist = hist[-2:]
+        json.dump(hist, open(HISTORIAL_PATH, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 
-        with open(HISTORIAL_PATH, "w", encoding="utf-8") as f:
-            json.dump(historial_emociones, f, ensure_ascii=False, indent=2)
-
-        return historial_emociones
+        return hist
 
     except Exception:
         return [{
